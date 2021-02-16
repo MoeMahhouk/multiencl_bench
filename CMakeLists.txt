@@ -71,9 +71,10 @@ endif()
 
 set(ENCLAVE_INC_DIRS "${SGX_INCLUDE_DIR}" "${SGX_TLIBC_INCLUDE_DIR}" "${SGX_LIBCXX_INCLUDE_DIR}")
 set(ENCLAVE_C_FLAGS "${SGX_COMMON_CFLAGS} -nostdinc -fvisibility=hidden -fpie -fstack-protector-strong")
+set(ENCLAVE_CPP_FLAGS   "${ENCLAVE_C_FLAGS} -nostdinc++")
 
 set(APP_INC_DIRS "${SGX_PATH}/include")
-set(APP_C_FLAGS "${SGX_COMMON_CFLAGS} -fPIC -Wno-attributes ${APP_INC_FLAGS}")
+set(APP_C_FLAGS "${SGX_COMMON_CFLAGS} -fPIC -Wno-attributes ${APP_INC_FLAGS} -I${APP_INC_DIRS} -ImultiEnclaves/App/")
 
-add_subdirectory(localTests)
+add_subdirectory(multiEnclaves)
 #add_subdirectory(remoteTests)
