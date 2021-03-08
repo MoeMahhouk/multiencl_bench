@@ -34,13 +34,15 @@
 enclave {
 
     trusted {
+        public void ecall_prepare_dummy_array(size_t len);
         public void ecall_without_args();
-        public void ecall_with_args([in, size=len] uint8_t *a , size_t len);
+        public void ecall_with_args(size_t len);
     };
     
     untrusted {
         void ocall_empty_call();
-	void ocall_with_args([in, size=len] uint8_t *a , size_t len);
+	    void ocall_with_args([in, size=len] uint8_t *a , size_t len);
+        void ocall_print_string([in, string] const char *str);
     };
 
 };

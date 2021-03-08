@@ -44,6 +44,14 @@
 #include "Enclave1_u.h"
 #include "Enclave2_u.h"
 
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <time.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <math.h>
+
 /* Global EID shared by multiple threads */
 sgx_enclave_id_t global_eid = 0;
 sgx_enclave_id_t global_eid2 = 0;
@@ -182,7 +190,7 @@ void ocall_print_string(const char *str)
     /* Proxy/Bridge will check the length and null-terminate 
      * the input string to prevent buffer overflow. 
      */
-    printf("%s", str);
+    printf("%s\n", str);
 }
 
 void ocall_empty_call() {
@@ -205,6 +213,129 @@ void ocall_with_args(uint8_t *a , size_t len) {
 
 }
 
+#define STRINGIFY(x) #x
+#define TOSTRING(x) STRINGIFY(x)
+
+#define SEC_TO_NS_FACTOR 1000000000LL
+
+#define TEST_WARMUP_SECS 5
+
+#define TEST_RUNS 1000
+
+#define TEST1_INVOCATIONS 1000
+
+#define TEST2_ARG_SIZE 1
+#define TEST2_INVOCATIONS 500
+
+#define TEST3_ARG_SIZE 8
+#define TEST3_INVOCATIONS 500
+
+#define TEST4_ARG_SIZE 64
+#define TEST4_INVOCATIONS 500
+
+#define TEST5_ARG_SIZE 512
+#define TEST5_INVOCATIONS 500
+
+#define TEST6_ARG_SIZE 4*1024
+#define TEST6_INVOCATIONS 500
+
+#define TEST7_ARG_SIZE 32*1024
+#define TEST7_INVOCATIONS 500
+
+#define TEST8_ARG_SIZE 256*1024
+#define TEST8_INVOCATIONS 300
+
+#define TEST9_ARG_SIZE 2*1024*1024
+#define TEST9_INVOCATIONS 145
+
+#define TEST10_ARG_SIZE 16*1024*1024
+#define TEST10_INVOCATIONS 50
+
+#define TEST11_ARG_SIZE 128*1024*1024
+#define TEST11_INVOCATIONS 5
+
+
+#define MAX_ARG_SIZE TEST11_ARG_SIZE
+#define NUMBER_TESTS 9
+
+// macro for testing. Advantage over using a function: shared and reused variables and no need for callbacks and such
+#define EXECUTE_TEST(test_name, function_name, function_call, runs, invocations) do { \
+    printf("Cleanup for next test\n"); \
+    memset(timings, 0, runs * 2 * sizeof(struct timespec)); /* zero indicates error */ \
+ \
+    printf("%s: %s with %u invocations and %u runs\n", test_name, function_name, invocations, runs); \
+    /* Warmup phase */ \
+    clock_gettime(CLOCK_MONOTONIC_RAW, &warmup); \
+    warmup_start_ns = warmup.tv_sec * SEC_TO_NS_FACTOR + warmup.tv_nsec; \
+    do { \
+        ret = function_call; \
+        if (ret != SGX_SUCCESS) { \
+            print_error_message(ret); \
+            exit(1); \
+        } \
+        clock_gettime(CLOCK_MONOTONIC_RAW, &warmup); \
+    } while ((warmup.tv_sec * SEC_TO_NS_FACTOR + warmup.tv_nsec - warmup_start_ns) < (TEST_WARMUP_SECS * SEC_TO_NS_FACTOR)); \
+ \
+    /* Test start */ \
+    for (run = 0; run < runs; run++) { \
+        clock_gettime(CLOCK_MONOTONIC_RAW, timings + (run * 2)); /* start time */ \
+ \
+        for (i = 0; i < invocations; i++) { \
+            ret = function_call; \
+            if (ret != SGX_SUCCESS) { \
+                print_error_message(ret); \
+                exit(1); \
+            } \
+        } \
+ \
+        clock_gettime(CLOCK_MONOTONIC_RAW, timings + (run * 2) + 1); /* end time */ \
+    } \
+    /* Test end */ \
+ \
+    /* Evaluation */ \
+    printf("%s: %s results\n", test_name, function_name); \
+    error = false; \
+    elapsed_ns_total = 0; \
+    /* calculate each run time and the total value for mean calculation */ \
+    for (run = 0; run < runs; run++) { \
+        start = timings + (run * 2); \
+        end = timings + (run * 2 + 1); \
+ \
+        if (start->tv_sec == 0 && start->tv_nsec == 0) { \
+            error = true; \
+            printf("Start time of run %u is invalid\n", run); \
+            break; \
+        } \
+        if (end->tv_sec == 0 && end->tv_nsec == 0) { \
+            error = true; \
+            printf("End time of run %u is invalid\n", run); \
+            break; \
+        } \
+ \
+        /* keep invocation factor of values to reduce arithmetic errors */ \
+        elapsed_ns[run] = (end->tv_sec - start->tv_sec) * SEC_TO_NS_FACTOR + end->tv_nsec - start->tv_nsec; \
+        elapsed_ns_total += elapsed_ns[run]; \
+    } \
+ \
+    /* get mean and standard deviation */ \
+    if (!error) { \
+        mean[test] = ((long double) elapsed_ns_total) / runs; \
+        variance = 0; \
+        for (run = 0; run < runs; run++) { \
+            variance += pow(elapsed_ns[run] - mean[test], 2); \
+        } \
+        deviation[test] = sqrt(variance / runs); \
+ \
+        /* remove invocation factor */ \
+        mean[test] = roundl(mean[test] / invocations); \
+        deviation[test] = roundl(deviation[test] / invocations); \
+ \
+        /* print results */ \
+        printf("Each call took %.0Lfns (+- %.0Lfns standard deviation between runs)\n", mean[test], deviation[test]); \
+        test++; \
+    } \
+} while (false)
+
 /* Application entry */
 int SGX_CDECL main(int argc, char *argv[])
 {
@@ -221,32 +352,93 @@ int SGX_CDECL main(int argc, char *argv[])
         return -1; 
     }
     
-    printf("calling and empty function with zero args from enclave1 in enclave2\n");
-    sgx_status_t ret = SGX_ERROR_UNEXPECTED;	
-    ret = ecall_without_args(global_eid);
+    // measurement preparations
+    printf("Test preparations\n");
+    sgx_status_t ret;
+    ret = ecall_prepare_dummy_array(global_eid, MAX_ARG_SIZE);
     if (ret != SGX_SUCCESS) {
         print_error_message(ret);
         exit(1);
     }
-    printf("successfully called an empty function with zero args from enclave1 in enclave2\n");
 
-	
-    printf("calling and empty function with args from enclave1 in enclave2\n");
-    uint8_t *a = (uint8_t *) malloc(sizeof(uint8_t)*64);
-    size_t len = 64;
-    ret = ecall_with_args(global_eid, a, len);
-    if (ret != SGX_SUCCESS) {
-        print_error_message(ret);
-        exit(1);
+    // Warmup times
+    struct timespec warmup;
+    uint64_t warmup_start_ns;
+
+    // Timings
+    struct timespec *timings = (timespec *) malloc(TEST_RUNS * 2 * sizeof(struct timespec)); // start and end times
+    if (timings == NULL) {
+        printf("Could not malloc timings array\n");
+        return -1;
     }
-    printf("successfully called an empty function with args from enclave1 in enclave2\n");
+    uint64_t *elapsed_ns = (uint64_t *) malloc(TEST_RUNS * sizeof(uint64_t));
+    if (elapsed_ns == NULL) {
+        printf("Could not malloc elapsed time array\n");
+        return -1;
+    }
+    uint64_t elapsed_ns_total;
+    struct timespec *start, *end;
 
+    // local variables
+    bool error;
+    uint32_t run, i, test = 0;
+    long double variance;
+    long double mean[NUMBER_TESTS], deviation[NUMBER_TESTS];
 
-    /* Destroy the enclave */
+    // TEST 1
+
+    EXECUTE_TEST("TEST1", "ecall_without_args()", (ecall_without_args(global_eid)), TEST_RUNS, TEST1_INVOCATIONS);
+
+    // TEST 2
+
+    EXECUTE_TEST("TEST2", "ecall_with_args(" TOSTRING(TEST2_ARG_SIZE) " bytes)", (ecall_with_args(global_eid, TEST2_ARG_SIZE)), TEST_RUNS, TEST2_INVOCATIONS);
+
+    // TEST 3
+
+    EXECUTE_TEST("TEST3", "ecall_with_args(" TOSTRING(TEST3_ARG_SIZE) " bytes)", (ecall_with_args(global_eid, TEST3_ARG_SIZE)), TEST_RUNS, TEST3_INVOCATIONS);
+
+    // TEST 4
+
+    EXECUTE_TEST("TEST4", "ecall_with_args(" TOSTRING(TEST4_ARG_SIZE) " bytes)", (ecall_with_args(global_eid, TEST4_ARG_SIZE)), TEST_RUNS, TEST4_INVOCATIONS);
+
+    // TEST 5
+
+    EXECUTE_TEST("TEST5", "ecall_with_args(" TOSTRING(TEST5_ARG_SIZE) " bytes)", (ecall_with_args(global_eid, TEST5_ARG_SIZE)), TEST_RUNS, TEST5_INVOCATIONS);
+
+    // TEST 6
+
+    EXECUTE_TEST("TEST6", "ecall_with_args(" TOSTRING(TEST6_ARG_SIZE) " bytes)", (ecall_with_args(global_eid, TEST6_ARG_SIZE)), TEST_RUNS, TEST6_INVOCATIONS);
+
+    // TEST 7
+
+    EXECUTE_TEST("TEST7", "ecall_with_args(" TOSTRING(TEST7_ARG_SIZE) " bytes)", (ecall_with_args(global_eid, TEST7_ARG_SIZE)), TEST_RUNS, TEST7_INVOCATIONS);
+
+    // TEST 8
+
+    EXECUTE_TEST("TEST8", "ecall_with_args(" TOSTRING(TEST8_ARG_SIZE) " bytes)", (ecall_with_args(global_eid, TEST8_ARG_SIZE)), TEST_RUNS, TEST8_INVOCATIONS);
+
+    // TEST 9
+
+    EXECUTE_TEST("TEST9", "ecall_with_args(" TOSTRING(TEST9_ARG_SIZE) " bytes)", (ecall_with_args(global_eid, TEST9_ARG_SIZE)), TEST_RUNS, TEST9_INVOCATIONS);
+
+    // TEST 10
+    // TODO crashes
+
+    //EXECUTE_TEST("TEST10", "ecall_with_args(" TOSTRING(TEST10_ARG_SIZE) " bytes)", (ecall_with_args(global_eid, TEST10_ARG_SIZE)), TEST_RUNS, TEST10_INVOCATIONS);
+
+    // TEST 11
+
+    //EXECUTE_TEST("TEST11", "ecall_with_args(" TOSTRING(TEST11_ARG_SIZE) " bytes)", (ecall_with_args(global_eid, TEST11_ARG_SIZE)), TEST_RUNS, TEST11_INVOCATIONS);
+
+    /* Destroy the enclaves */
     sgx_destroy_enclave(global_eid);
     sgx_destroy_enclave(global_eid2);
-    
-    printf("Info: SampleEnclave successfully returned.\n");
+
+    printf("Test results as CSV:\n");
+    printf("timing, deviation\n");
+    for (i = 0; i < NUMBER_TESTS; i++) {
+        printf("%.0Lf, %.0Lf\n", mean[i], deviation[i]);
+    }
 
     printf("Enter a character before exit ...\n");
     getchar();

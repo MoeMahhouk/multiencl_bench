@@ -35,7 +35,7 @@ enclave {
 
    trusted {
         public void ecall_do_nothing();
-	public void ecall_do_nothing_with_args([in, size=len] uint8_t *a, size_t len);
+	    public void ecall_do_nothing_with_args([in, size=len] uint8_t *a, size_t len);
     };
 
 };

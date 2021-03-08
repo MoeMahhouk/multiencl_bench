@@ -35,11 +35,19 @@
 
 #include <stddef.h>
 
+static uint8_t *array;
+
+void ecall_prepare_dummy_array(size_t len) {
+    array = (uint8_t *) malloc(len);
+    if (array == NULL) {
+        ocall_print_string("Cannot allocate array");
+    }
+}
 
 void ecall_without_args(){
     ocall_empty_call();
 }
 
-void ecall_with_args(uint8_t *a , size_t len){
-    ocall_with_args(a,len);
+void ecall_with_args(size_t len) {
+    ocall_with_args(array, len);
 }

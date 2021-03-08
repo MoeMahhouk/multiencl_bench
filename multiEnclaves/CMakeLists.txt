@@ -40,7 +40,7 @@ if(SGX_HW AND SGX_MODE STREQUAL "Release")
     add_custom_target(enclave1-sign ALL
             COMMAND ${SGX_ENCLAVE_SIGNER} gendata
             -config Enclave/Enclave.config.xml
-            -enclave enclave1.so -out enclave1_hash.hex ${IGN_INIT} ${IGN_REL}
+            -enclave libenclave1.so -out enclave1_hash.hex ${IGN_INIT} ${IGN_REL}
             COMMAND ${CMAKE_COMMAND} -E cmake_echo_color
             --cyan "SGX production enclave first step signing finished, \
     use ${CMAKE_CURRENT_BINARY_DIR}/enclave_hash.hex for second step"
@@ -96,7 +96,7 @@ if(SGX_HW AND SGX_MODE STREQUAL "Release")
     add_custom_target(enclave2-sign ALL
             COMMAND ${SGX_ENCLAVE_SIGNER} gendata
             -config Enclave2/Enclave.config.xml
-            -enclave enclave2.so -out enclave2_hash.hex ${IGN_INIT} ${IGN_REL}
+            -enclave libenclave2.so -out enclave2_hash.hex ${IGN_INIT} ${IGN_REL}
             COMMAND ${CMAKE_COMMAND} -E cmake_echo_color
             --cyan "SGX production enclave first step signing finished, \
     use ${CMAKE_CURRENT_BINARY_DIR}/enclave_hash.hex for second step"
